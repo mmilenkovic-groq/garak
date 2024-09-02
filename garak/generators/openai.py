@@ -10,6 +10,7 @@ sources:
 * https://platform.openai.com/docs/model-index-for-researchers
 """
 
+import os
 import json
 import logging
 import re
@@ -43,6 +44,9 @@ chat_models = (
     "gpt-3.5-turbo-16k",
     "gpt-3.5-turbo-0613",  # deprecated, shutdown 2024-06-13
     "gpt-3.5-turbo-16k-0613",  # # deprecated, shutdown 2024-06-13
+    # groq-specific chat models
+    "llama-3.1-8b-instant",
+    "llama-3.1-70b-versatile",
 )
 
 completion_models = (
@@ -84,6 +88,8 @@ context_lengths = {
     "gpt-4-0613": 8192,
     "gpt-4-32k": 32768,
     "gpt-4-32k-0613": 32768,
+    "llama-3.1-8b-instant": 131072,
+    "llama-3.1-70b-versatile": 131072,
 }
 
 
@@ -95,6 +101,7 @@ class OpenAICompatible(Generator):
     active = False  # this interface class is not active
     supports_multiple_generations = True
     generator_family_name = "OpenAICompatible"  # Placeholder override when extending
+    supports_multiple_genrations: bool = False
 
     # template defaults optionally override when extending
     DEFAULT_PARAMS = Generator.DEFAULT_PARAMS | {
@@ -130,11 +137,14 @@ class OpenAICompatible(Generator):
     def _validate_config(self):
         pass
 
-    def __init__(self, name="", config_root=_config):
+    def __init__(
+        self, name="", config_root=_config, supports_multiple_generations=True
+    ):
         self.name = name
         self._load_config(config_root)
         self.fullname = f"{self.generator_family_name} {self.name}"
         self.key_env_var = self.ENV_VAR
+        self.supports_multiple_generations = supports_multiple_generations
 
         self._load_client()
 
@@ -217,7 +227,17 @@ class OpenAICompatible(Generator):
             create_args["messages"] = messages
 
         try:
-            response = self.generator.create(**create_args)
+            if self.supports_multiple_generations:
+                response = self.generator.create(**create_args)
+            else:
+                create_args["n"] = 1
+                responses = [
+                    self.generator.create(**create_args)
+                    for _ in range(generations_this_call)
+                ]
+                response = responses[0]
+                for r in responses[1:]:
+                    response.choices.append(r.choices[0])
         except openai.BadRequestError as e:
             msg = "Bad request: " + str(repr(prompt))
             logging.exception(e)
@@ -244,7 +264,13 @@ class OpenAIGenerator(OpenAICompatible):
     generator_family_name = "OpenAI"
 
     def _load_client(self):
-        self.client = openai.OpenAI(api_key=self.api_key)
+        try:
+            base_url = os.environ["OPENAI_URL"]
+            print(f"redirecting openai url to {base_url}")
+        except:
+            base_url = None
+            print("using default openai URL")
+        self.client = openai.OpenAI(api_key=self.api_key, base_url=base_url)
 
         if self.name == "":
             openai_model_list = sorted([m.id for m in self.client.models.list().data])
@@ -279,7 +305,10 @@ class OpenAIGenerator(OpenAICompatible):
         if self.name in context_lengths:
             self.context_len = context_lengths[self.name]
 
-        super().__init__(self.name, config_root=config_root)
+        # TODO: make multiple generations configurable, currently hardcoding to work without it
+        super().__init__(
+            self.name, config_root=config_root, supports_multiple_generations=False
+        )
 
 
 DEFAULT_CLASS = "OpenAIGenerator"

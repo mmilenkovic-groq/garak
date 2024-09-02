@@ -1,5 +1,22 @@
 # garak, LLM vulnerability scanner
 
+## Running garak via custom openai-compatible APIs
+
+```sh
+conda create --name garak "python>=3.10,<=3.12"
+conda activate garak
+gh repo clone leondz/garak
+cd garak
+python -m pip install -U git+https://github.com/mmilenkovic-groq/garak.git@openai-url-redirect-support
+#use URL redirect if targeting openai-compatible models with different URLs (such as Groq-hosted ones)
+export OPENAI_URL="https://api.groq.com/openai/v1"
+export OPENAI_API_KEY="sk-123XXXXXXXXXXXX"
+#replace with other model endpoints such as llama-3.1-70b-versatile , etc.
+#NOTE: new models need to be added to the chat-models and context_lengths objects in garak/generators/openai.py
+garak --model_type openai --model_name llama-3.1-8b-instant --probes encoding
+```
+
+
 *Generative AI Red-teaming & Assessment Kit*
 
 `garak` checks if an LLM can be made to fail in a way we don't want. `garak` probes for hallucination, data leakage, prompt injection, misinformation, toxicity generation, jailbreaks, and many other weaknesses. If you know `nmap`, it's `nmap` for LLMs. 
